@@ -11,8 +11,10 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
+import javax.mail.MessagingException;
 import javax.transaction.Transactional;
 import javax.validation.constraints.Null;
+import java.io.UnsupportedEncodingException;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.Optional;
@@ -29,16 +31,6 @@ public class AuthServiceImpl implements AuthService{
 
     private static final Integer EXPIRE_IN = 30;
 
-    @Override
-    public Boolean isAlreadyRegistered(RegisterRequest registerRequest) {
-        User user = userRepository.findByEmail(registerRequest.getEmail());
-        if(user==null)
-        {
-            log.info("user not found with email "+registerRequest.getEmail());
-            return false;
-        }
-        return true;
-    }
 
     @Transactional
     @Override
@@ -94,6 +86,47 @@ public class AuthServiceImpl implements AuthService{
         }
         return true;
     }
+
+
+    @Override
+    public void resendToken(RegisterRequest registerRequest)  {
+        /*
+            two cases
+            1 : verification token is expired
+            2 : verification is not expired
+         */
+        User user = userRepository.findByEmail(registerRequest.getEmail());
+        VerificationToken verificationToken = user.getVerificationToken();
+        if(isTokenExpired(verificationToken.getExpireAt()))
+        {
+//            generate new token
+
+            verificationToken.setToken(generateVerificationToken());
+            verificationToken.setExpireAt(this.getExpireInstant());
+            verificationTokenRepository.save(verificationToken);
+        }
+        try{
+            mailService.sendMail(user, verificationToken.getToken());
+        }catch (Exception e){
+            log.info("Cannot send email to "+user.getEmail());
+        }
+    }
+
+    @Override
+    public Boolean isEmailRegistered(String email) {
+        User user = userRepository.findByEmail(email);
+        if(user==null){
+            return false;
+        }
+        return true;
+    }
+
+    @Override
+    public boolean isAlreadyVerified(RegisterRequest registerRequest) {
+        User user = userRepository.findByEmail(registerRequest.getEmail());
+        return user.getAuthenticated();
+    }
+
 
     private boolean isTokenExpired(Instant expireAt) {
         Instant instant = Instant.now();
